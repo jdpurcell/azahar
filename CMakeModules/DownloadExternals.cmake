@@ -1,47 +1,34 @@
 
-set(CURRENT_MODULE_DIR ${CMAKE_CURRENT_LIST_DIR})
-
 # Determines parameters based on the host and target for downloading the right Qt binaries.
 function(determine_qt_parameters target host_out type_out arch_out arch_path_out host_type_out host_arch_out host_arch_path_out)
-    if (target MATCHES "tools_.*")
-        set(tool ON)
-    else()
-        set(tool OFF)
-    endif()
-
     # Determine installation parameters for OS, architecture, and compiler
     if (WIN32)
         set(host "windows")
         set(type "desktop")
 
-        if (NOT tool)
-            if (MINGW)
-                set(arch "win64_mingw")
-                set(arch_path "mingw_64")
-            elseif (MSVC)
-                if ("arm64" IN_LIST ARCHITECTURE)
-                    set(arch_path "msvc2022_arm64")
-                elseif ("x86_64" IN_LIST ARCHITECTURE)
-                    set(arch_path "msvc2022_64")
-                else()
-                    message(FATAL_ERROR "Unsupported bundled Qt architecture. Enable USE_SYSTEM_QT and provide your own.")
-                endif()
+        if (MINGW)
+            set(arch "win64_mingw")
+            set(arch_path "mingw_64")
+        elseif (MSVC)
+            if ("arm64" IN_LIST ARCHITECTURE)
+                set(arch_path "msvc2022_arm64")
+                set(arch "win64_msvc2022_arm64_cross_compiled")
+            elseif ("x86_64" IN_LIST ARCHITECTURE)
+                set(arch_path "msvc2022_64")
                 set(arch "win64_${arch_path}")
-
-                # In case we're cross-compiling, prepare to also fetch the correct host Qt tools.
-                if (CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "AMD64")
-                    set(host_arch_path "msvc2022_64")
-                elseif (CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "ARM64")
-                    # TODO: msvc2019_arm64 doesn't include some of the required tools for some reason,
-                    # TODO: so until it does, just use msvc2019_64 under x86_64 emulation.
-                    # TODO: ^ Is this still true with msvc2022?
-                    # set(host_arch_path "msvc2019_arm64")
-                    set(host_arch_path "msvc2022_64")
-                endif()
-                set(host_arch "win64_${host_arch_path}")
             else()
-                message(FATAL_ERROR "Unsupported bundled Qt toolchain. Enable USE_SYSTEM_QT and provide your own.")
+                message(FATAL_ERROR "Unsupported bundled Qt architecture. Enable USE_SYSTEM_QT and provide your own.")
             endif()
+
+            # In case we're cross-compiling, prepare to also fetch the correct host Qt tools.
+            if (CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "AMD64")
+                set(host_arch_path "msvc2022_64")
+            elseif (CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "ARM64")
+                set(host_arch_path "msvc2022_64")
+            endif()
+            set(host_arch "win64_${host_arch_path}")
+        else()
+            message(FATAL_ERROR "Unsupported bundled Qt toolchain. Enable USE_SYSTEM_QT and provide your own.")
         endif()
     elseif (APPLE)
         set(host "mac")
@@ -49,7 +36,7 @@ function(determine_qt_parameters target host_out type_out arch_out arch_path_out
         set(arch "clang_64")
         set(arch_path "macos")
 
-        if (IOS AND NOT tool)
+        if (IOS)
             set(host_type "${type}")
             set(host_arch "${arch}")
             set(host_arch_path "${arch_path}")
@@ -61,7 +48,7 @@ function(determine_qt_parameters target host_out type_out arch_out arch_path_out
     else()
         set(host "linux")
         set(type "desktop")
-        set(arch "gcc_64")
+        set(arch "linux_gcc_64")
         set(arch_path "linux")
     endif()
 
@@ -88,53 +75,36 @@ endfunction()
 
 # Download Qt binaries for a specifc configuration.
 function(download_qt_configuration prefix_out target host type arch arch_path base_path)
-    if (target MATCHES "tools_.*")
-        set(tool ON)
-    else()
-        set(tool OFF)
-    endif()
-
-    set(install_args -c "${CURRENT_MODULE_DIR}/aqt_config.ini")
-    if (tool)
-        set(prefix "${base_path}/Tools")
-        set(install_args ${install_args} install-tool --outputdir ${base_path} ${host} desktop ${target})
-    else()
-        set(prefix "${base_path}/${target}/${arch_path}")
-        set(install_args ${install_args} install-qt --outputdir ${base_path} ${host} ${type} ${target} ${arch}
-                -m qtmultimedia --archives qttranslations qttools qtsvg qtbase)
-    endif()
+    set(prefix "${base_path}/${target}/${arch_path}")
+    set(install_args install-qt ${host} ${type} ${target} ${arch} --outputdir ${base_path}
+            --modules qtmultimedia --archives qttranslations qttools qtsvg qtbase qtmultimedia)
 
     if (NOT EXISTS "${prefix}")
         message(STATUS "Downloading Qt binaries for ${target}:${host}:${type}:${arch}:${arch_path}")
-        set(AQT_PREBUILD_BASE_URL "https://github.com/miurahr/aqtinstall/releases/download/v3.3.0")
-        if (WIN32)
-            set(aqt_path "${base_path}/aqt.exe")
-            if (NOT EXISTS "${aqt_path}")
-                file(DOWNLOAD
-                        ${AQT_PREBUILD_BASE_URL}/aqt.exe
-                        ${aqt_path} SHOW_PROGRESS)
+        set(naqt_path "${base_path}/naqt")
+        set(naqt_dll "${naqt_path}/naqt.dll")
+        if (NOT EXISTS "${naqt_dll}")
+            set(naqt_archive "${base_path}/naqt.zip")
+            file(DOWNLOAD
+                    https://github.com/jdpurcell/naqt/releases/download/latest/naqt.zip
+                    "${naqt_archive}" SHOW_PROGRESS TLS_VERIFY ON STATUS download_status)
+            list(GET download_status 0 download_status_code)
+            list(GET download_status 1 download_status_message)
+            if (NOT download_status_code EQUAL 0)
+                file(REMOVE "${naqt_archive}")
+                message(FATAL_ERROR "Failed to download naqt: ${download_status_message}")
             endif()
-            execute_process(COMMAND ${aqt_path} ${install_args}
-                    WORKING_DIRECTORY ${base_path})
-        elseif (APPLE)
-            set(aqt_path "${base_path}/aqt-macos")
-            if (NOT EXISTS "${aqt_path}")
-                file(DOWNLOAD
-                        ${AQT_PREBUILD_BASE_URL}/aqt-macos
-                        ${aqt_path} SHOW_PROGRESS)
-            endif()
-            execute_process(COMMAND chmod +x ${aqt_path})
-            execute_process(COMMAND ${aqt_path} ${install_args}
-                    WORKING_DIRECTORY ${base_path})
-        else()
-            # aqt does not offer binary releases for other platforms, so download and run from pip.
-            set(aqt_install_path "${base_path}/aqt")
-            file(MAKE_DIRECTORY "${aqt_install_path}")
 
-            execute_process(COMMAND python3 -m pip install --target=${aqt_install_path} aqtinstall
-                    WORKING_DIRECTORY ${base_path})
-            execute_process(COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${aqt_install_path} python3 -m aqt ${install_args}
-                    WORKING_DIRECTORY ${base_path})
+            file(MAKE_DIRECTORY "${naqt_path}")
+            file(ARCHIVE_EXTRACT INPUT "${naqt_archive}" DESTINATION "${naqt_path}")
+            file(REMOVE "${naqt_archive}")
+        endif()
+
+        find_program(DOTNET_EXECUTABLE dotnet REQUIRED)
+        execute_process(COMMAND "${DOTNET_EXECUTABLE}" "${naqt_dll}" ${install_args}
+                WORKING_DIRECTORY "${base_path}" RESULT_VARIABLE install_result)
+        if (NOT install_result EQUAL 0)
+            message(FATAL_ERROR "naqt failed to install Qt (exit code ${install_result})")
         endif()
 
         message(STATUS "Downloaded Qt binaries for ${target}:${host}:${type}:${arch}:${arch_path} to ${prefix}")
@@ -143,13 +113,16 @@ function(download_qt_configuration prefix_out target host type arch arch_path ba
     set(${prefix_out} "${prefix}" PARENT_SCOPE)
 endfunction()
 
-# This function downloads Qt using aqt.
+# This function downloads Qt using naqt.
 # The path of the downloaded content will be added to the CMAKE_PREFIX_PATH.
 # QT_TARGET_PATH is set to the Qt for the compile target platform.
 # QT_HOST_PATH is set to a host-compatible Qt, for running tools.
 # Params:
-#   target: Qt dependency to install. Specify a version number to download Qt, or "tools_(name)" for a specific build tool.
+#   target: Full Qt version number to download.
 function(download_qt target)
+    if (target MATCHES "tools_.*")
+        message(FATAL_ERROR "naqt does not support installing Qt tools")
+    endif()
     determine_qt_parameters("${target}" host type arch arch_path host_type host_arch host_arch_path)
 
     get_external_prefix(qt base_path)
