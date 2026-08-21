@@ -77,7 +77,7 @@ endfunction()
 function(download_qt_configuration prefix_out target host type arch arch_path base_path)
     set(prefix "${base_path}/${target}/${arch_path}")
     set(install_args install-qt ${host} ${type} ${target} ${arch} --outputdir ${base_path}
-            --modules qtmultimedia --archives qttranslations qttools qtsvg qtbase qtmultimedia)
+            --modules qtmultimedia --archives qttranslations qttools qtsvg qtbase qtdeclarative qtmultimedia)
 
     if (NOT EXISTS "${prefix}")
         message(STATUS "Downloading Qt binaries for ${target}:${host}:${type}:${arch}:${arch_path}")
