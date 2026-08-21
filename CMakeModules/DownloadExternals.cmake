@@ -106,36 +106,13 @@ function(download_qt_configuration prefix_out target host type arch arch_path ba
 
     if (NOT EXISTS "${prefix}")
         message(STATUS "Downloading Qt binaries for ${target}:${host}:${type}:${arch}:${arch_path}")
-        set(AQT_PREBUILD_BASE_URL "https://github.com/miurahr/aqtinstall/releases/download/v3.3.0")
-        if (WIN32)
-            set(aqt_path "${base_path}/aqt.exe")
-            if (NOT EXISTS "${aqt_path}")
-                file(DOWNLOAD
-                        ${AQT_PREBUILD_BASE_URL}/aqt.exe
-                        ${aqt_path} SHOW_PROGRESS)
-            endif()
-            execute_process(COMMAND ${aqt_path} ${install_args}
-                    WORKING_DIRECTORY ${base_path})
-        elseif (APPLE)
-            set(aqt_path "${base_path}/aqt-macos")
-            if (NOT EXISTS "${aqt_path}")
-                file(DOWNLOAD
-                        ${AQT_PREBUILD_BASE_URL}/aqt-macos
-                        ${aqt_path} SHOW_PROGRESS)
-            endif()
-            execute_process(COMMAND chmod +x ${aqt_path})
-            execute_process(COMMAND ${aqt_path} ${install_args}
-                    WORKING_DIRECTORY ${base_path})
-        else()
-            # aqt does not offer binary releases for other platforms, so download and run from pip.
-            set(aqt_install_path "${base_path}/aqt")
-            file(MAKE_DIRECTORY "${aqt_install_path}")
+        set(aqt_install_path "${base_path}/aqt")
+        file(MAKE_DIRECTORY "${aqt_install_path}")
 
-            execute_process(COMMAND python3 -m pip install --target=${aqt_install_path} aqtinstall
-                    WORKING_DIRECTORY ${base_path})
-            execute_process(COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${aqt_install_path} python3 -m aqt ${install_args}
-                    WORKING_DIRECTORY ${base_path})
-        endif()
+        execute_process(COMMAND python3 -m pip install --target=${aqt_install_path} git+https://github.com/miurahr/aqtinstall.git
+                WORKING_DIRECTORY ${base_path})
+        execute_process(COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${aqt_install_path} python3 -m aqt ${install_args}
+                WORKING_DIRECTORY ${base_path})
 
         message(STATUS "Downloaded Qt binaries for ${target}:${host}:${type}:${arch}:${arch_path} to ${prefix}")
     endif()
